@@ -12,6 +12,8 @@ from absorcion_10534_2 import Absorcion_10534_2
 import pyaudio
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import os
 
 OUTPUT_PATH = Path(__file__).parent
 ASSETS_PATH = OUTPUT_PATH / Path(r"C:\Users\MAITE\Documents\UNTREF\Tesis\Procesamiento\GitHub\Tesis\build\assets\frame0")
@@ -389,7 +391,7 @@ button_BA = Button(
     image=button_image_5,
     borderwidth=0,
     highlightthickness=0,
-    command=lambda: corr2Button(medicion, cal_id),
+    command=lambda: corr2Button(medicion, measurement_id),
     relief="flat"
 )
 button_AB.place_forget()
@@ -406,7 +408,7 @@ button_ver_corr = Button(
     image=button_image_6,
     borderwidth=0,
     highlightthickness=0,
-    command=lambda: verCorrButton(medicion, cal_id),
+    command=lambda: verCorrButton(medicion, measurement_id),
     relief="flat"
 )
 button_ver_corr.place_forget()
@@ -491,7 +493,7 @@ button_export = Button(
     image=button_image_11,
     borderwidth=0,
     highlightthickness=0,
-    command=lambda: print("button_11 clicked"),
+    command=lambda: exportButton(medicion),
     relief="flat"
 )
 button_export.place_forget()
@@ -515,7 +517,7 @@ def infoButton():
 
     # A Label widget to show in toplevel
     Label(helpWindow,
-          text=open('Información.txt', 'r').read(), wraplength=250, justify="left").pack()
+          text=open('Información.txt', 'r', encoding='utf-8').read(), wraplength=250, justify="left").pack()
 
 
 def measureButton():
@@ -553,14 +555,17 @@ def measureButton():
     channels_output = 1  # Número de canales (1 para mono, 2 para estéreo)
     channels_input = 2
     sample_rate = 44100  # Tasa de muestreo en Hz
-    sweep_lower_frequency = 50
-    sweep_upper_frequency = 5000
+    sweep_lower_frequency = 100
+    sweep_upper_frequency = 2500
     sweep_duration = 30
     record_duration = sweep_duration
     # Alpha calculation constants
     smooth_response = True
     smooth_window_size = 100
     octave_fraction = 3
+    global measurement_id
+    measurement_id = 0
+
 
     medicion.measurement_setup(input_device_gui=input_device_gui,
                                output_device_gui=output_device_gui,
@@ -594,6 +599,7 @@ def measureButton():
 def snrButton(medicion):
     # 5 - Se mide relación señal a ruido
 
+    global snr_id
     snr_id = 1  # Este id debe ir aumentando si la medición se repite, para que quede registro
     medicion.measure_snr(snr_id)
 
@@ -630,11 +636,12 @@ def snrButton(medicion):
         canvas.itemconfig(text_snr_results, text = "Canal 1 NO CUMPLE. Canal 2 NO CUMPLE. \nAjuste los niveles de entrada o salida.", fill="red")
 
 
+
 def corr1Button(medicion):
     # 6 - Se mide la Calibración AB - BA
-    global cal_id
-    cal_id = 1
-    medicion.measure_calibration(cal_id, "AB")
+    global measurement_id
+    measurement_id += 1
+    medicion.measure_calibration(measurement_id, "AB")
 
     button_BA.place(                        # Visibilidad de elementos ocultos
         x=325.1809387207031,
@@ -644,10 +651,9 @@ def corr1Button(medicion):
     )
 
 
-def corr2Button(medicion, cal_id):
+def corr2Button(medicion, measurement_id):
     # 6 - Se mide la Calibración AB - BA
-    # cal_id = 1
-    medicion.measure_calibration(cal_id, "BA")
+    medicion.measure_calibration(measurement_id, "BA")
 
     button_ver_corr.place(                  # Visibilidad de elementos ocultos
         x=661.0,
@@ -657,9 +663,9 @@ def corr2Button(medicion, cal_id):
     )
 
 
-def verCorrButton(medicion, cal_id):
+def verCorrButton(medicion, measurement_id):
     # Se calcula la calibración y se verifica si todo está ok visualmente, sino repetir el proceso
-    medicion.calibration_calculation(cal_id)
+    medicion.calibration_calculation(measurement_id)
 
     frequency = medicion.correction_data["frequency"]
     H1_corr_1 = medicion.correction_data["H1_corr_1"]
@@ -697,6 +703,12 @@ def verCorrButton(medicion, cal_id):
 
 def repetirButton():
     print('Hay que hacer algo con los ID')
+
+    # measurement_id = measurement_id + 1
+    button_aceptar.place_forget()
+    button_ver_corr.place_forget()
+    button_BA.place_forget()
+    button_repetir.place_forget()
 
 
 def aceptarButton():
@@ -749,7 +761,9 @@ def resultsButton(medicion):
     alpha_center = medicion.absorption_data[1]["alpha_frac"]
     tf_corr = medicion.absorption_data[1]["tf"]
 
-    plt.plot(frec_center, alpha_center, label = entry_sample.get())
+    for i in abs_ids:
+        plt.plot(frec_center,medicion.absorption_data[i]["alpha_frac"], label = entry_sample.get() + '_' + str(i))
+    # plt.plot(frec_center, alpha_center, label = entry_sample.get())
     plt.xlabel('Frecuencia [Hz]')
     plt.ylabel('Coeficiente de absorción sonora')
     plt.xlim([230,2094])
@@ -775,7 +789,26 @@ def resultsButton(medicion):
 
     plt.show()
 
+def exportButton(medicion):
+    N = int(entry_repetitions.get())
+    frec_center = medicion.absorption_data[1]["freq_center"]
+    alpha_center = medicion.absorption_data[1]["alpha_frac"]
 
+    data_excel = {'Frecuencia 1/3 oct [Hz]': medicion.absorption_data[1]["freq_center"]}
+    df = pd.DataFrame(data_excel)
+    data_alpha = {"Alpha_" + str(i + 1): medicion.absorption_data[i]["alpha_frac"] for i in range (1,N+1)}
+
+    index_columna_frecuencia = df.columns.get_loc('Frecuencia 1/3 oct [Hz]')
+    for nombre_columna, datos_columna in data_alpha.items():
+        df.insert(index_columna_frecuencia + 1, nombre_columna, datos_columna)
+
+
+    # data_excel = {'Frecuencia lin': frequency, 'Alpha 0': alpha[0], 'Alpha 1': alpha[1], 'Alpha 2': alpha[2]}
+    # df = pd.DataFrame(datos)
+    # excelName = os.path.join(medicion.folder_name, '-Resultados.xlsx')
+    excelName = medicion.folder_path + '/Resultados.xlsx'
+        # 'C:/Users/MAITE/Documents/UNTREF/Tesis/Procesamiento/GitHub/Tesis/audios-test/ProtoTubo/23-11-23/Acustiver R/Acustiver R #3. 23-11 TERCIOS.xlsx'
+    df.to_excel(excelName, index=False)
 
 
 def botones():
